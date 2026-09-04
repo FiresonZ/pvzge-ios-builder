@@ -1,0 +1,266 @@
+name: Build & Auto Release IPA
+
+# ============================================================
+# PvZ2 Gardendless - 构建 + 官方版本同步 + 自动发布无签名 IPA
+# （由 build-ipa-no-sign.yml 与 auto-release.yml 合并而来，仅保留这一个工作流）
+#
+# 功能：
+#   1. 定时（UTC 00:00，国内 08:00）/ 手动 检测官方仓库最新版本
+#   2. 用 docs/index.html 的 <title> 语义版本号 + docs 目录最新 commit SHA
+#      共同确定"是否更新"，避免版本号不变但热修复的漏网
+#   3. 与本仓库已有 Release 的 tag 对比：
+#      - 一致 → 跳过
+#      - 不一致 → 自动构建 IPA，并创建一个新的 GitHub Release
+#   4. 手动触发时的常用选项：
+#      - 勾选「force_build」→ 即使版本号 / commit 都没变也会强制重新构建并发版
+#      - 手动填写「app_version」→ 覆盖自动检测的版本号
+#
+# 说明：所有 shell 逻辑都放在 scripts/ 目录，本文件仅做编排与调脚本，
+#       便于本地测试与维护。
+# ============================================================
+
+on:
+  schedule:
+    # 北京时间每天早上 8 点检查一次
+    - cron: "0 0 * * *"
+
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: "官方源码仓库（owner/repo）"
+        required: true
+        default: "Gzh0821/pvzge_web"
+        type: string
+      source_branch:
+        description: "要跟踪的分支，留空用默认分支"
+        required: false
+        default: ""
+        type: string
+      force_build:
+        description: "强制构建（即使版本号和commit都没变也会重新打包并发Release）"
+        required: false
+        default: false
+        type: boolean
+      app_version:
+        description: "手动覆盖版本号（可选），留空则自动从官方仓库 index.html 提取"
+        required: false
+        default: ""
+        type: string
+      web_dir:
+        description: "Web 构建产物目录路径"
+        required: true
+        default: "docs"
+        type: string
+      app_name:
+        description: "App 显示名称"
+        required: true
+        default: "PvZ2 Gardendless"
+        type: string
+      app_bundle_id:
+        description: "App Bundle Identifier"
+        required: true
+        default: "com.pvzge.gardendless"
+        type: string
+
+env:
+  XCODE_SCHEME: "App"
+  CAPACITOR_CORE_VERSION: "6"
+  NODE_VERSION: "20"
+
+# 创建 Release 需要写仓库内容的权限
+permissions:
+  contents: write
+
+jobs:
+  # ===========================================================
+  # Job 1: 检测版本，决定是否需要继续构建
+  # ===========================================================
+  detect-version:
+    name: Detect Official Version
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version:        ${{ steps.check.outputs.version }}
+      commit_sha:     ${{ steps.check.outputs.commit_sha }}
+      commit_short:   ${{ steps.check.outputs.commit_short }}
+      tag_name:       ${{ steps.check.outputs.tag_name }}
+      release_name:   ${{ steps.check.outputs.release_name }}
+      source_repo:    ${{ steps.check.outputs.repo }}
+      source_branch:  ${{ steps.check.outputs.branch }}
+      web_dir:        ${{ steps.check.outputs.web_dir }}
+      app_name:       ${{ steps.check.outputs.app_name }}
+      app_bundle_id:  ${{ steps.check.outputs.app_bundle_id }}
+      app_version:    ${{ steps.check.outputs.app_version }}
+      force:          ${{ steps.check.outputs.force }}
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout packager repo (scripts/)
+
+      - name: Run check-version.sh
+        id: check
+        shell: bash
+        env:
+          SOURCE_REPO:   ${{ inputs.source_repo || '' }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || '' }}
+          WEB_DIR:       ${{ inputs.web_dir || '' }}
+          APP_NAME:      ${{ inputs.app_name || '' }}
+          APP_BUNDLE_ID: ${{ inputs.app_bundle_id || '' }}
+          APP_VERSION:   ${{ inputs.app_version || '' }}
+          FORCE_BUILD:   ${{ inputs.force_build || 'false' }}
+          GITHUB_TOKEN:  ${{ github.token }}
+        run: |
+          chmod +x ./scripts/check-version.sh
+          ./scripts/check-version.sh
+
+  # ===========================================================
+  # Job 2: 构建 IPA（仅当需要发版时运行）
+  # ===========================================================
+  build-ipa:
+    name: Build Unsigned IPA
+    needs: detect-version
+    if: needs.detect-version.outputs.should_release == 'true'
+    runs-on: macos-14
+    timeout-minutes: 180
+    outputs:
+      ipa_name:          ${{ steps.build-full.outputs.ipa_name }}
+      ipa_lite_name:     ${{ steps.build-lite.outputs.ipa_name }}
+      ipa_artifact_full: ${{ steps.build-full.outputs.ipa_name }}
+      ipa_artifact_lite: ${{ steps.build-lite.outputs.ipa_name }}
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout packager repo (scripts/)
+
+      - name: Checkout Official Game Source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.detect-version.outputs.source_repo }}
+          ref: ${{ needs.detect-version.outputs.source_branch }}
+          path: _game_src
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # 去除 index.html 里的广告/统计/隐私同意代码 + 删除已失效的 ads.txt
+      # （对共享的 checkout 清理一次，正式版与 Lite 版都会继承干净的资源）
+      - name: Sanitize web assets (remove ad/tracking code)
+        shell: bash
+        run: |
+          chmod +x ./scripts/sanitize-web.sh
+          ./scripts/sanitize-web.sh "${{ github.workspace }}/_game_src/${{ needs.detect-version.outputs.web_dir }}"
+
+      # ---------------- 正式版 ----------------
+      - name: Build FULL IPA
+        id: build-full
+        shell: bash
+        env:
+          APP_NAME:            ${{ needs.detect-version.outputs.app_name }}
+          APP_BUNDLE_ID:       ${{ needs.detect-version.outputs.app_bundle_id }}
+          WEB_DIR:             ${{ github.workspace }}/_game_src/${{ needs.detect-version.outputs.web_dir }}
+          VERSION:             ${{ needs.detect-version.outputs.version }}
+          COMMIT_SHORT:        ${{ needs.detect-version.outputs.commit_short }}
+          PROJ_DIR:            ${{ runner.temp }}/cap_full
+          XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
+          CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
+        run: |
+          chmod +x ./scripts/build-ipa.sh
+          ./scripts/build-ipa.sh
+
+      # ---------------- Lite 版 ----------------
+      - name: Prepare Lite assets (compress PNG/MP3)
+        shell: bash
+        run: |
+          chmod +x ./scripts/prepare-lite.sh
+          ./scripts/prepare-lite.sh "${{ github.workspace }}/_game_src/${{ needs.detect-version.outputs.web_dir }}" "${{ runner.temp }}/web_lite"
+
+      - name: Build LITE IPA
+        id: build-lite
+        shell: bash
+        env:
+          APP_NAME:            ${{ needs.detect-version.outputs.app_name }}
+          APP_BUNDLE_ID:       ${{ needs.detect-version.outputs.app_bundle_id }}
+          WEB_DIR:             ${{ runner.temp }}/web_lite
+          VERSION:             ${{ needs.detect-version.outputs.version }}
+          COMMIT_SHORT:        ${{ needs.detect-version.outputs.commit_short }}
+          SUFFIX:              lite
+          PROJ_DIR:            ${{ runner.temp }}/cap_lite
+          XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
+          CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
+        run: |
+          chmod +x ./scripts/build-ipa.sh
+          ./scripts/build-ipa.sh
+
+      # ---------------- 上传产物 ----------------
+      - name: Upload FULL Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build-full.outputs.ipa_name }}
+          path: ${{ steps.build-full.outputs.ipa_output_dir }}/${{ steps.build-full.outputs.ipa_name }}
+          retention-days: 90
+          compression-level: 0
+
+      - name: Upload LITE Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build-lite.outputs.ipa_name }}
+          path: ${{ steps.build-lite.outputs.ipa_output_dir }}/${{ steps.build-lite.outputs.ipa_name }}
+          retention-days: 90
+          compression-level: 0
+
+  # ===========================================================
+  # Job 3: 创建 GitHub Release 并上传 IPA 作为 Asset
+  # ===========================================================
+  create-release:
+    name: Create GitHub Release
+    needs: [detect-version, build-ipa]
+    if: needs.detect-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout packager repo (scripts/)
+
+      - name: Download FULL Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-ipa.outputs.ipa_artifact_full }}
+          path: ./release_full
+
+      - name: Download LITE Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build-ipa.outputs.ipa_artifact_lite }}
+          path: ./release_lite
+
+      - name: Compose release data & notes
+        id: release
+        shell: bash
+        env:
+          RELEASE_ASSET_DIR: ./release_full
+          LITE_ASSET_DIR:    ./release_lite
+          TAG:          ${{ needs.detect-version.outputs.tag_name }}
+          FULL_SHA:     ${{ needs.detect-version.outputs.commit_sha }}
+          SRC_REPO:     ${{ needs.detect-version.outputs.source_repo }}
+          BRANCH:       ${{ needs.detect-version.outputs.source_branch }}
+          APP_NAME:     ${{ needs.detect-version.outputs.app_name }}
+          IPA:          ${{ needs.build-ipa.outputs.ipa_name }}
+          IPA_LITE:     ${{ needs.build-ipa.outputs.ipa_lite_name }}
+          RELEASE_NAME: ${{ needs.detect-version.outputs.release_name }}
+        run: |
+          chmod +x ./scripts/create-release.sh
+          ./scripts/create-release.sh
+
+      - name: Create GitHub Release with Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:   ${{ needs.detect-version.outputs.tag_name }}
+          name:       ${{ needs.detect-version.outputs.release_name }}
+          body_path:  ./RELEASE_NOTES.md
+          files: |
+            ${{ steps.release.outputs.ipa_path }}
+            ${{ steps.release.outputs.ipa_lite_path }}
+          # 非稳定后缀（+abc1234）的版本不算 pre-release；有 dev/alpha/beta 字样再标记
+          prerelease: ${{ contains(needs.detect-version.outputs.version, 'dev') || contains(needs.detect-version.outputs.version, 'alpha') || contains(needs.detect-version.outputs.version, 'beta') || contains(needs.detect-version.outputs.version, 'rc') }}
+          make_latest: true
+          generate_release_notes: false
