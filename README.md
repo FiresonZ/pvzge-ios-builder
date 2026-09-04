@@ -1,12 +1,15 @@
 <div align="center">
   <img width="22%" src="https://pvzge.com/pvz_logo-round.webp" alt="PvZ2 Gardendless">
   <h1>PvZ2 Gardendless — iOS 自动打包仓库</h1>
+  <h3>📦 pvzge-ios-builder</h3>
 
-[![Build IPA (No Sign)](https://img.shields.io/badge/Action-Build%20IPA-success?logo=github)](.github/workflows/build-ipa-no-sign.yml)
 [![Auto Release](https://img.shields.io/badge/Action-Auto%20Release-blueviolet?logo=github)](.github/workflows/auto-release.yml)
-[![Latest Release](https://img.shields.io/github/v/release/Gzh0821/pvzge_web?label=Official%20Version&color=informational)](https://github.com/Gzh0821/pvzge_web)
+[![Latest Release](https://img.shields.io/github/v/release/FiresonZ/pvzge-ios-builder?label=Latest%20Release&color=informational)](https://github.com/FiresonZ/pvzge-ios-builder/releases)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
-📦 官方 Web 版 → 自动包装 → **无签名 iOS IPA**，巨魔商店 / 自签即可装在 iPhone 上畅玩！
+📦 官方 Web 版 → 自动包装 → **无签名 iOS IPA**（正式版 + Lite 版），巨魔商店 / 自签即可装在 iPhone 上畅玩！
+
+🍳 **项目名：`pvzge-ios-builder`** —— 纯脚本型壳仓库，只包含自动构建工具与工作流，**不保存任何游戏资源**。
 </div>
 
 ---
@@ -29,24 +32,24 @@
 ### 🔧 方式二：手动点一下立刻打包
 需要立刻打出特定历史版本 / Tag / Commit 的 IPA ？
 
-1. 进入 [Actions → Build IPA (No Sign)](../../actions/workflows/build-ipa-no-sign.yml)
+1. 进入 [Actions → Build & Auto Release IPA](../../actions/workflows/auto-release.yml)
 2. 点击右侧 **Run workflow** 按钮
 3. 填写参数 → 点绿按钮运行
-4. 10~20 分钟后在当前运行页面底部 **Artifacts** 里下载 IPA
+4. 10~20 分钟后在当前运行页面底部 **Artifacts** 里下载正式版 + Lite 版 IPA
 
 ---
 
-## 📋 参数说明（两个工作流通用）
+## 📋 参数说明（Build & Auto Release 工作流通用）
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `source_repo` | `Gzh0821/pvzge_web` | 游戏源码仓库（格式 `owner/repo`）。fork 自己用或换项目时改这里即可 |
-| `source_ref` / `source_branch` | *(空)* | **Build IPA**：填分支/Tag/Commit SHA；**Auto Release**：填要跟踪的分支。留空 = 官方默认分支 |
+| `source_repo` | `Gzh0821/pvzge_web` | 官方游戏源码仓库（格式 `owner/repo`）。fork 自己用或换项目时改这里即可 |
+| `source_branch` | *(空)* | 要跟踪的分支 / Tag / Commit SHA。留空 = 官方默认分支 |
 | `web_dir` | `docs` | 构建产物（含 `index.html` 的目录）在源仓库中的相对路径 |
 | `app_name` | `PvZ2 Gardendless` | iPhone 桌面上显示的 App 名（中英文都可） |
 | `app_bundle_id` | `com.pvzge.gardendless` | iOS Bundle Identifier；用证书自签时这个 ID 必须与你的证书 ID 一致 |
-| `app_version` | *(空→当天日期)* | **Build IPA 独有**：自定义版本号，如 `0.13.0` |
-| `force_release` | `false` | **Auto Release 独有**：勾选后即使检测到版本没变也会强制重新打包发 Release |
+| `app_version` | *(空→自动提取)* | 自定义版本号（如 `0.13.0`），留空则自动从官方仓库 `index.html` 提取 |
+| `force_build` | `false` | 勾选后即使检测到版本 / commit 没变也会强制重新打包并发 Release |
 
 ---
 
@@ -83,7 +86,7 @@
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│                        Auto Release 工作流（每天 8 点）                 │
+│                Build & Auto Release 工作流（每天 08:00 北京时间）       │
 │  ① curl 官方 docs/index.html → 正则解析 <title> 里的语义版本号（0.13.0） │
 │  ② GitHub API 查询官方 docs/ 目录的最新 commit SHA → 短 sha(7位)        │
 │  ③ tag = v<版本号>+<短sha>  → 和本仓库最新 Release tag 对比             │
@@ -95,12 +98,14 @@
 ┌──────────────────────────────────────────────┐
 │         macOS-14 Runner：构建 IPA            │
 │  ① Node.js 20 + npm 装 Capacitor v6          │
-│  ② npx cap init → npx cap add ios            │
-│  ③ npx cap sync（把官方 docs/ 拷进 iOS 工程） │
-│  ④ pod install（Capacitor 的 CocoaPods 依赖） │
-│  ⑤ sed 清理所有 DEVELOPMENT_TEAM / SIGN_ID   │
-│  ⑥ xcodebuild CODE_SIGNING_ALLOWED=NO 编译   │
-│  ⑦ 产物 .app → 装入 Payload/ → zip → .ipa    │
+│  ② sanitize-web 清理广告/统计/同意脚本       │
+│  ③ npx cap init → npx cap add ios            │
+│  ④ npx cap sync（把官方 docs/ 拷进 iOS 工程） │
+│  ⑤ pod install（Capacitor 的 CocoaPods 依赖） │
+│  ⑥ sed 清理所有 DEVELOPMENT_TEAM / SIGN_ID   │
+│  ⑦ xcodebuild CODE_SIGNING_ALLOWED=NO 编译   │
+│  ⑧ prepare-lite 压缩资源 → 再编译一次 Lite   │
+│  ⑨ 产物 .app → Payload/ → zip → 正式版+Lite .ipa │
 └────────────────────────────┬─────────────────┘
                              ▼
 ┌──────────────────────────────────────────────┐
@@ -108,18 +113,20 @@
 │  ① sha256sum 校验和  +  du -h 体积           │
 │  ② 生成带表格 + 安装教程的 Release Notes     │
 │  ③ softprops/action-gh-release 创建 Release  │
-│     并把 IPA 作为附件上传                     │
+│     并把正式版 + Lite 版 IPA 作为附件上传     │
 └──────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🎯 两个工作流的区别
+## 🎯 工作流的产物
 
-| 工作流 YAML | 触发方式 | 用途 | 产物去向 |
-|---|---|---|---|
-| [`build-ipa-no-sign.yml`](.github/workflows/build-ipa-no-sign.yml) | 手动 `workflow_dispatch` | 临时打任意版本 / 调试用 | Actions Artifact（保留 90 天） |
-| [`auto-release.yml`](.github/workflows/auto-release.yml) | **定时 `cron: 0 0 * * *`** + 手动 | 日常跟踪官方更新、稳定发布渠道 | **GitHub Releases**（永久保留） |
+| 产物 | 生成方式 | 去向 |
+|---|---|---|
+| 🟢 **正式版 IPA** | 官方 `docs/` 完整打包 | **GitHub Releases**（永久保留）+ Actions Artifact（保留 90 天） |
+| ⚡ **Lite 版 IPA** | PNG/MP3 有损压缩后再打包 | 同上，一并上传 Releases |
+
+工作流同时支持**定时（`cron: 0 0 * * *`，北京 08:00）**与**手动 `workflow_dispatch`** 两种触发方式。
 
 ---
 
@@ -177,15 +184,32 @@ GitHub Actions 有现成的 `ubuntu-latest + Android SDK` 镜像。有需要可�
 
 ---
 
+## 📜 协议声明（License）
+
+本项目 `pvzge-ios-builder` 以 **GNU General Public License v3.0 (GPL-3.0)** 开源，与官方源仓库 [Gzh0821/pvzge_web](https://github.com/Gzh0821/pvzge_web) 保持一致，详见仓库根目录的 [LICENSE](LICENSE) 文件。
+
+> **重要说明**：本 License **仅覆盖本仓库的自动化构建/打包脚本与工作流代码**，**不代表、不包含、不授予对任何游戏资源（代码、美术、音频等）的使用权**。游戏资源版权始终归其原作者所有，请另行遵守对方的授权与条款。
+
+---
+
 ## 🛠️ 本仓库文件结构
 
 ```
 .
 ├── .github/
 │   └── workflows/
-│       ├── build-ipa-no-sign.yml  # 手动触发：打任意版本的无签名 IPA
-│       └── auto-release.yml       # 每天定时：检测官方更新 → 自动打 IPA → 发 Release
+│       └── auto-release.yml       # Build & Auto Release：检测官方更新 → 构建IPA(正式+Lite) → 发布
+├── capacitor-project/             # 本地的 Capacitor 工程模板（appId/appName/webDir 配置）
+│   ├── capacitor.config.json
+│   └── package.json
+├── scripts/                       # 所有构建逻辑，供 workflow 调用，便于本地调试
+│   ├── build-ipa.sh               # 初始化 Capacitor + 无签名编译 + 打包 unsigned IPA
+│   ├── check-version.sh           # 检测官方版本/commit，决定是否发版
+│   ├── create-release.sh          # 计算 SHA256 / 体积 + 生成 Release notes
+│   ├── prepare-lite.sh            # 生成 Lite 版（PNG/MP3 有损压缩）
+│   └── sanitize-web.sh            # 清理 index.html 中的广告/统计/隐私同意代码
 ├── .gitignore                     # 仅忽略 .vscode
+├── LICENSE                        # MIT 开源许可证
 └── README.md                      # 本文件
 ```
 
