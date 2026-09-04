@@ -5,7 +5,7 @@
 
 [![Auto Release](https://img.shields.io/badge/Action-Auto%20Release-blueviolet?logo=github)](.github/workflows/auto-release.yml)
 [![Latest Release](https://img.shields.io/github/v/release/FiresonZ/pvzge-ios-builder?label=Latest%20Release&color=informational)](https://github.com/FiresonZ/pvzge-ios-builder/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
 📦 官方 Web 版 → 自动包装 → **无签名 iOS IPA**（正式版 + Lite 版），巨魔商店 / 自签即可装在 iPhone 上畅玩！
 
@@ -186,7 +186,7 @@ GitHub Actions 有现成的 `ubuntu-latest + Android SDK` 镜像。有需要可�
 
 ## 📜 协议声明（License）
 
-本项目 `pvzge-ios-builder` 以 **MIT License** 开源，详见仓库根目录的 [LICENSE](LICENSE) 文件。
+本项目 `pvzge-ios-builder` 以 **GNU General Public License v3.0 (GPL-3.0)** 开源，与官方源仓库 [Gzh0821/pvzge_web](https://github.com/Gzh0821/pvzge_web) 保持一致，详见仓库根目录的 [LICENSE](LICENSE) 文件。
 
 > **重要说明**：本 License **仅覆盖本仓库的自动化构建/打包脚本与工作流代码**，**不代表、不包含、不授予对任何游戏资源（代码、美术、音频等）的使用权**。游戏资源版权始终归其原作者所有，请另行遵守对方的授权与条款。
 
