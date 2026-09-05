@@ -61,26 +61,6 @@ on:
         required: true
         default: "com.pvzge.gardendless"
         type: string
-      debug_capture:
-        description: "调试排错：注入JS错误捕获器（截获首帧前的错误/getUserMedia/弹窗，写屏幕调试面板+console）"
-        required: false
-        default: false
-        type: boolean
-      server_url:
-        description: "远程加载地址（可选）。留空=本地打包（capacitor://）；填写 https://... 则 App 从该地址加载网页，用于验证灰屏是否为本地 scheme/资源加载根因"
-        required: false
-        default: ""
-        type: string
-      custom_scheme:
-        description: "本地自定义 scheme（可选，与 server_url 二选一）。填如 gardendless-game，则用自定义源替代 capacitor:// 在本地加载游戏资源，尝试修复灰屏"
-        required: false
-        default: ""
-        type: string
-      local_server:
-        description: "内嵌本地 http 服务器（GCDWebServer）离线加载，修复灰屏（默认开）。与 server_url 二选一；server_url 优先"
-        required: false
-        default: true
-        type: boolean
 
 env:
   XCODE_SCHEME: "App"
@@ -174,22 +154,14 @@ jobs:
           VERSION:             ${{ needs.detect-version.outputs.version }}
           COMMIT_SHORT:        ${{ needs.detect-version.outputs.commit_short }}
           PROJ_DIR:            ${{ runner.temp }}/cap_full
-          SOURCE_REPO:         ${{ needs.detect-version.outputs.source_repo }}
-          SOURCE_BRANCH:       ${{ needs.detect-version.outputs.source_branch }}
-          COMMIT_SHA:          ${{ needs.detect-version.outputs.commit_sha }}
-          DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
-          SERVER_URL:          ${{ inputs.server_url || '' }}
-          CUSTOM_SCHEME:       ${{ inputs.custom_scheme || '' }}
-          LOCAL_SERVER:        ${{ inputs.local_server || '1' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
           chmod +x ./scripts/build-ipa.sh
           ./scripts/build-ipa.sh
 
-      # ---------------- Lite 版（远程加载模式下跳过：本地资源不入包，Lite 无意义）-------
+      # ---------------- Lite 版 ----------------
       - name: Prepare Lite assets (compress PNG/MP3)
-        if: inputs.server_url == ''
         shell: bash
         run: |
           chmod +x ./scripts/prepare-lite.sh
@@ -197,7 +169,6 @@ jobs:
 
       - name: Build LITE IPA
         id: build-lite
-        if: inputs.server_url == ''
         shell: bash
         env:
           APP_NAME:            ${{ needs.detect-version.outputs.app_name }}
@@ -207,13 +178,6 @@ jobs:
           COMMIT_SHORT:        ${{ needs.detect-version.outputs.commit_short }}
           SUFFIX:              lite
           PROJ_DIR:            ${{ runner.temp }}/cap_lite
-          SOURCE_REPO:         ${{ needs.detect-version.outputs.source_repo }}
-          SOURCE_BRANCH:       ${{ needs.detect-version.outputs.source_branch }}
-          COMMIT_SHA:          ${{ needs.detect-version.outputs.commit_sha }}
-          DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
-          SERVER_URL:          ${{ inputs.server_url || '' }}
-          CUSTOM_SCHEME:       ${{ inputs.custom_scheme || '' }}
-          LOCAL_SERVER:        ${{ inputs.local_server || '1' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
@@ -230,7 +194,6 @@ jobs:
           compression-level: 0
 
       - name: Upload LITE Artifact
-        if: inputs.server_url == ''
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build-lite.outputs.ipa_name }}
@@ -257,7 +220,6 @@ jobs:
           path: ./release_full
 
       - name: Download LITE Artifact
-        if: needs.build-ipa.outputs.ipa_artifact_lite != ''
         uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build-ipa.outputs.ipa_artifact_lite }}
