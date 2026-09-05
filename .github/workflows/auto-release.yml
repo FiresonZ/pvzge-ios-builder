@@ -175,8 +175,9 @@ jobs:
           chmod +x ./scripts/build-ipa.sh
           ./scripts/build-ipa.sh
 
-      # ---------------- Lite 版 ----------------
+      # ---------------- Lite 版（远程加载模式下跳过：本地资源不入包，Lite 无意义）-------
       - name: Prepare Lite assets (compress PNG/MP3)
+        if: inputs.server_url == ''
         shell: bash
         run: |
           chmod +x ./scripts/prepare-lite.sh
@@ -184,6 +185,7 @@ jobs:
 
       - name: Build LITE IPA
         id: build-lite
+        if: inputs.server_url == ''
         shell: bash
         env:
           APP_NAME:            ${{ needs.detect-version.outputs.app_name }}
@@ -214,6 +216,7 @@ jobs:
           compression-level: 0
 
       - name: Upload LITE Artifact
+        if: inputs.server_url == ''
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build-lite.outputs.ipa_name }}
@@ -240,6 +243,7 @@ jobs:
           path: ./release_full
 
       - name: Download LITE Artifact
+        if: needs.build-ipa.outputs.ipa_artifact_lite != ''
         uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build-ipa.outputs.ipa_artifact_lite }}

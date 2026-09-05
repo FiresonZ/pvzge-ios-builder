@@ -172,6 +172,18 @@ npm install --silent --no-audit --no-fund \
   "@capacitor/cli@^$CAP_VERSION" \
   "@capacitor/ios@^$CAP_VERSION"
 
+# 远程加载模式（SERVER_URL 非空）：运行时从 server.url 拉网页，本地 webDir 资源
+# 无需打进包。把 webDir 切到一个仅含占位页的临时目录，cap sync 后包里不携带游戏
+# 资源 → 得到几 MB 的瘦包。留空则维持本地电容加载（全量资源打入包内）。
+if [ -n "$SERVER_URL" ]; then
+  EMPTY_WEB="$RUNNER_TEMP/empty_web_${VTOK}"
+  mkdir -p "$EMPTY_WEB"
+  printf '<!doctype html><html><head><meta charset="utf-8"><title>%s</title></head><body>remote-load: %s</body></html>' \
+    "$APP_NAME" "$SERVER_URL" > "$EMPTY_WEB/index.html"
+  echo "ℹ️ 远程加载模式：webDir 切换到空占位目录 $EMPTY_WEB（瘦身，不打包本地游戏资源）"
+  WEB_DIR_ABS="$EMPTY_WEB"
+fi
+
 # ---------- 3) cap init（Capacitor 6 不支持 --app-version）----------
 npx cap init "$APP_NAME" "$APP_BUNDLE_ID" --web-dir="$WEB_DIR_ABS"
 
