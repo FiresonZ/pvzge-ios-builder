@@ -66,6 +66,11 @@ on:
         required: false
         default: false
         type: boolean
+      server_url:
+        description: "远程加载地址（可选）。留空=本地打包（capacitor://）；填写 https://... 则 App 从该地址加载网页，用于验证灰屏是否为本地 scheme/资源加载根因"
+        required: false
+        default: ""
+        type: string
 
 env:
   XCODE_SCHEME: "App"
@@ -163,6 +168,7 @@ jobs:
           SOURCE_BRANCH:       ${{ needs.detect-version.outputs.source_branch }}
           COMMIT_SHA:          ${{ needs.detect-version.outputs.commit_sha }}
           DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
+          SERVER_URL:          ${{ inputs.server_url || '' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
@@ -191,6 +197,7 @@ jobs:
           SOURCE_BRANCH:       ${{ needs.detect-version.outputs.source_branch }}
           COMMIT_SHA:          ${{ needs.detect-version.outputs.commit_sha }}
           DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
+          SERVER_URL:          ${{ inputs.server_url || '' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
