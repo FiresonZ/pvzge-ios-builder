@@ -76,6 +76,11 @@ on:
         required: false
         default: ""
         type: string
+      local_server:
+        description: "内嵌本地 http 服务器（GCDWebServer）离线加载，修复灰屏（默认开）。与 server_url 二选一；server_url 优先"
+        required: false
+        default: true
+        type: boolean
 
 env:
   XCODE_SCHEME: "App"
@@ -175,6 +180,7 @@ jobs:
           DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
           SERVER_URL:          ${{ inputs.server_url || '' }}
           CUSTOM_SCHEME:       ${{ inputs.custom_scheme || '' }}
+          LOCAL_SERVER:        ${{ inputs.local_server || '1' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
@@ -207,6 +213,7 @@ jobs:
           DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
           SERVER_URL:          ${{ inputs.server_url || '' }}
           CUSTOM_SCHEME:       ${{ inputs.custom_scheme || '' }}
+          LOCAL_SERVER:        ${{ inputs.local_server || '1' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |

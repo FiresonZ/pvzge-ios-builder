@@ -48,6 +48,8 @@ CAPTURE="${DEBUG_CAPTURE:-0}"
 SERVER_URL="${SERVER_URL:-}"     # 非空 = 远程加载（App 从该 https 地址拉网页，而非本地源）
 CUSTOM_SCHEME="${CUSTOM_SCHEME:-}" # 非空且未填 SERVER_URL = 本地自定义 scheme（如 gardendless-game），
                                    # 覆盖 Capacitor 默认的 capacitor://，本地加载游戏资源
+LOCAL_SERVER="${LOCAL_SERVER:-1}"  # =1 且未填 SERVER_URL = 内嵌本地 http 服务器（GCDWebServer）离线加载，修复灰屏
+LOCAL_PORT="${LOCAL_SERVER_PORT:-8080}"  # 本地 http 服务器端口，需与 server.url 及 Swift 端一致
 BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 INDEX_F="$WEB_DIR_ABS/index.html"
@@ -190,10 +192,11 @@ fi
 npx cap init "$APP_NAME" "$APP_BUNDLE_ID" --web-dir="$WEB_DIR_ABS"
 
 # ---------- 4) 写入 appId/appName/appVersion/appVersionCode ----------
-#    server 段三选一（优先级：SERVER_URL > CUSTOM_SCHEME > 默认 capacitor://）：
-#      - SERVER_URL   非空 → "server": {"url": ...} 远程加载（验证用/远程瘦包）
-#      - CUSTOM_SCHEME 非空 → "server": {"appleScheme": ...} 本地自定义 scheme（如 gardendless-game）
-#      - 两者都空      → 移除 server 段，走 Capacitor 默认 capacitor:// 本地加载
+#    server 段四选一（优先级：SERVER_URL > CUSTOM_SCHEME > LOCAL_SERVER > 默认）：
+#      - SERVER_URL    非空 → 远程加载（server.url = https://...）
+#      - CUSTOM_SCHEME 非空 → 本地自定义 scheme（server.appleScheme）
+#      - LOCAL_SERVER=1      → 内嵌本地 http 服务器（server.url = http://127.0.0.1:PORT）
+#      - 否则                 → 移除 server 段，走 Capacitor 默认 capacitor://
 python3 - <<PYEOF
 import json, os
 p = "capacitor.config.json"
@@ -204,12 +207,17 @@ c["appVersion"] = os.environ["VERSION"]
 c["appVersionCode"] = 1
 server_url = os.environ.get("SERVER_URL", "").strip()
 custom_scheme = os.environ.get("CUSTOM_SCHEME", "").strip()
+local_server = os.environ.get("LOCAL_SERVER", "1").strip().lower() in ("1", "true")
+local_port = os.environ.get("LOCAL_PORT", "8080").strip()
 if server_url:
     c["server"] = {"url": server_url}
     print("✅ server.url =", server_url)
 elif custom_scheme:
     c["server"] = {"appleScheme": custom_scheme}
     print("✅ server.appleScheme =", custom_scheme)
+elif local_server:
+    c["server"] = {"url": f"http://127.0.0.1:{local_port}"}
+    print("✅ local http server -> server.url =", c["server"]["url"])
 else:
     c.pop("server", None)  # 清掉旧配置，走默认 capacitor://
 with open(p, "w") as f:
@@ -248,6 +256,117 @@ open(p, "w", encoding="utf-8").write(s)
 PY
   else
     echo "::warning:: 未找到 AppDelegate.swift：$APPD"
+  fi
+fi
+
+# --- 5.6) 本地 http 服务器（默认开）：内嵌 GCDWebServer Serve 打包进 public 的网页，
+#          WebView 加载 http://127.0.0.1:$LOCAL_PORT，等价于"打包版 python http.server"，
+#          修复 capacitor:// 本地源导致的灰屏（可离线）。
+#          当填写 SERVER_URL(远程) 或 CUSTOM_SCHEME 时自动跳过本注入。
+if [ "$LOCAL_SERVER" = "1" ] || [ "$LOCAL_SERVER" = "true" ]; then 
+  if [ -z "$SERVER_URL" ] && [ -z "$CUSTOM_SCHEME" ]; then
+  PODFILE="$proj/ios/App/Podfile"
+  APPD="$proj/ios/App/App/AppDelegate.swift"
+  PLIST="$proj/ios/App/App/Info.plist"
+  {
+    python3 - "$PODFILE" "$APPD" "$PLIST" "$LOCAL_PORT" <<'PY'
+import sys
+podfile, appd, plist, port = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+
+# ---- 1) Podfile：向 App target 添加 GCDWebServer ----
+with open(podfile, encoding="utf-8") as f:
+    s = f.read()
+if "GCDWebServer" not in s:
+    needle = "  capacitor_pods\n"
+    if needle not in s:
+        needle = "target 'App' do\n"
+    inject_pod = "  pod 'GCDWebServer'\n"
+    s = s.replace(needle, needle + inject_pod, 1)
+    with open(podfile, "w", encoding="utf-8") as f:
+        f.write(s)
+
+# ---- 2) AppDelegate.swift：启动本地 http 服务器 ----
+with open(appd, encoding="utf-8") as f:
+    s = f.read()
+method_marker = "kLocalServerPort"
+if method_marker not in s:
+    # 2a) import GCDWebServer
+    if "import GCDWebServer" not in s:
+        idx = s.find("import Capacitor")
+        if idx >= 0:
+            eol = s.find("\n", idx)
+            s = s[:eol] + "\nimport GCDWebServer" + s[eol:]
+    # 2b) 常量 + webServer 属性（放在 class 开头、第一个 { 之后）
+    cls = s.find("class AppDelegate")
+    ob = s.find("{", cls)
+    nl = s.find("\n", ob)
+    if nl >= 0:
+        head = "\n    private let kLocalServerPort: UInt = " + port + "\n" \
+             + "    private var webServer: GCDWebServer?\n"
+        s = s[:nl] + head + s[nl:]
+    # 2c) 在 didFinishLaunchingWithOptions 里、return true 前启动服务器
+    i = s.find("didFinishLaunchingWithOptions")
+    j = s.find("return true", i) if i >= 0 else -1
+    if j >= 0:
+        ls = s.rfind("\n", 0, j) + 1
+        line = s[ls:s.find("\n", j)]
+        ind = line[: len(line) - len(line.lstrip())]
+        call = ind + "self.webServer = startLocalWebServer()\n"
+        s = s[:ls] + call + s[ls:]
+    # 2d) 追加服务器方法（插到类最后一个右花括号前）
+    method = '''
+    @discardableResult
+    func startLocalWebServer() -> GCDWebServer? {
+        guard let webPath = Bundle.main.path(forResource: "public", ofType: nil) else { return nil }
+        let server = GCDWebServer()
+        // .wasm 需要正确 MIME，否则 Cocos wasm 加载失败
+        server.addHandler(forMethod: "GET", pathRegex: ".*\\\\.wasm(/[^/]*)?$",
+                          request: GCDWebServerRequest.self) { [webPath] request in
+            var rel = request.path
+            if rel.hasPrefix("/") { rel.removeFirst() }
+            rel = rel.removingPercentEncoding ?? rel
+            let file = URL(fileURLWithPath: webPath).appendingPathComponent(rel).path
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: file)) else {
+                return GCDWebServerResponse(statusCode: 404)
+            }
+            return GCDWebServerDataResponse(data: data, contentType: "application/wasm")
+        }
+        server.addGETHandler(forBasePath: "/", directoryPath: webPath,
+                             indexFilename: "index.html", cacheAge: 120, allowRangeRequests: true)
+        do {
+            try server.start(withPort: self.kLocalServerPort, bonjourName: nil)
+        } catch {
+            print("[PVZGE] local http server start failed: \\(error)")
+            return nil
+        }
+        return server
+    }
+'''
+    ri = s.rfind("}")
+    s = s[:ri] + method + "\n" + s[ri:]
+    with open(appd, "w", encoding="utf-8") as f:
+        f.write(s)
+
+# ---- 3) Info.plist：允许本地明文 HTTP（NSAllowsLocalNetworking）----
+with open(plist, encoding="utf-8", errors="replace") as f:
+    s = f.read()
+if "NSAllowsLocalNetworking" not in s:
+    if "<key>NSAppTransportSecurity</key>" in s:
+        i = s.find("<key>NSAppTransportSecurity</key>")
+        d = s.find("<dict>", i)
+        if d >= 0:
+            d += len("<dict>")
+            inj = "\n<key>NSAllowsLocalNetworking</key><true/>\n"
+            s = s[:d] + inj + s[d:]
+    else:
+        anchor = "</dict>\n</plist>"
+        inj = "<key>NSAppTransportSecurity</key>\n<dict>\n<key>NSAllowsLocalNetworking</key><true/>\n</dict>\n"
+        s = s.replace(anchor, inj + anchor, 1) if anchor in s else s
+    with open(plist, "w", encoding="utf-8") as f:
+        f.write(s)
+PY
+  } && echo "✅ 已注入本地 http 服务器（GCDWebServer, port=$LOCAL_PORT）" \
+    || echo "::warning:: 本地 http 服务器注入失败（不影响构建）"
   fi
 fi
 
