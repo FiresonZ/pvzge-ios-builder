@@ -45,6 +45,7 @@ SOURCE_REPO="${SOURCE_REPO:-Gzh0821/pvzge_web}"
 SOURCE_BRANCH="${SOURCE_BRANCH:-master}"
 COMMIT_SHA="${COMMIT_SHA:-}"
 CAPTURE="${DEBUG_CAPTURE:-0}"
+SERVER_URL="${SERVER_URL:-}"   # 非空 = 远程加载（App 从该 https 地址拉网页，而非本地 capacitor://）
 BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 INDEX_F="$WEB_DIR_ABS/index.html"
@@ -175,6 +176,8 @@ npm install --silent --no-audit --no-fund \
 npx cap init "$APP_NAME" "$APP_BUNDLE_ID" --web-dir="$WEB_DIR_ABS"
 
 # ---------- 4) 写入 appId/appName/appVersion/appVersionCode ----------
+#    若 SERVER_URL 非空，额外写入 "server": {"url": ...}，让 App 从远程 https 地址
+#    加载网页（用于验证灰屏是否为本地 scheme / 资源加载根因）；留空则维持本地 capacitor://
 python3 - <<PYEOF
 import json, os
 p = "capacitor.config.json"
@@ -183,6 +186,12 @@ c["appId"] = c.get("appId") or os.environ["APP_BUNDLE_ID"]
 c["appName"] = c.get("appName") or os.environ["APP_NAME"]
 c["appVersion"] = os.environ["VERSION"]
 c["appVersionCode"] = 1
+server_url = os.environ.get("SERVER_URL", "").strip()
+if server_url:
+    c["server"] = {"url": server_url}
+    print("✅ server.url =", server_url)
+else:
+    c.pop("server", None)  # 清掉旧配置，保证本地打包不受残留影响
 with open(p, "w") as f:
     f.write(json.dumps(c, indent=2) + "\n")
 PYEOF
