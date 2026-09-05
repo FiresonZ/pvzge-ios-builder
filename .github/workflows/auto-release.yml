@@ -143,14 +143,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      # 去除 index.html 里的广告/统计/隐私同意代码 + 删除已失效的 ads.txt
-      # （对共享的 checkout 清理一次，正式版与 Lite 版都会继承干净的资源）
-      - name: Sanitize web assets (remove ad/tracking code)
-        shell: bash
-        run: |
-          chmod +x ./scripts/sanitize-web.sh
-          ./scripts/sanitize-web.sh "${{ github.workspace }}/_game_src/${{ needs.detect-version.outputs.web_dir }}"
-
       # ---------------- 正式版 ----------------
       - name: Build FULL IPA
         id: build-full

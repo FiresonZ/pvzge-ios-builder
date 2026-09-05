@@ -98,14 +98,13 @@
 ┌──────────────────────────────────────────────┐
 │         macOS-14 Runner：构建 IPA            │
 │  ① Node.js 20 + npm 装 Capacitor v6          │
-│  ② sanitize-web 清理广告/统计/同意脚本       │
-│  ③ npx cap init → npx cap add ios            │
-│  ④ npx cap sync（把官方 docs/ 拷进 iOS 工程） │
-│  ⑤ pod install（Capacitor 的 CocoaPods 依赖） │
-│  ⑥ sed 清理所有 DEVELOPMENT_TEAM / SIGN_ID   │
-│  ⑦ xcodebuild CODE_SIGNING_ALLOWED=NO 编译   │
-│  ⑧ prepare-lite 压缩资源 → 再编译一次 Lite   │
-│  ⑨ 产物 .app → Payload/ → zip → 正式版+Lite .ipa │
+│  ② npx cap init → npx cap add ios            │
+│  ③ npx cap sync（把官方 docs/ 拷进 iOS 工程） │
+│  ④ pod install（Capacitor 的 CocoaPods 依赖） │
+│  ⑤ sed 清理所有 DEVELOPMENT_TEAM / SIGN_ID   │
+│  ⑥ xcodebuild CODE_SIGNING_ALLOWED=NO 编译   │
+│  ⑦ prepare-lite 压缩资源 → 再编译一次 Lite   │
+│  ⑧ 产物 .app → Payload/ → zip → 正式版+Lite .ipa │
 └────────────────────────────┬─────────────────┘
                              ▼
 ┌──────────────────────────────────────────────┐
@@ -206,8 +205,7 @@ GitHub Actions 有现成的 `ubuntu-latest + Android SDK` 镜像。有需要可�
 │   ├── build-ipa.sh               # 初始化 Capacitor + 无签名编译 + 打包 unsigned IPA
 │   ├── check-version.sh           # 检测官方版本/commit，决定是否发版
 │   ├── create-release.sh          # 计算 SHA256 / 体积 + 生成 Release notes
-│   ├── prepare-lite.sh            # 生成 Lite 版（PNG/MP3 有损压缩）
-│   └── sanitize-web.sh            # 清理 index.html 中的广告/统计/隐私同意代码
+│   └── prepare-lite.sh            # 生成 Lite 版（PNG/MP3 有损压缩）
 ├── .gitignore                     # 仅忽略 .vscode
 ├── LICENSE                        # MIT 开源许可证
 └── README.md                      # 本文件
