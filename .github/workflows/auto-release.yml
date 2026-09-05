@@ -61,6 +61,11 @@ on:
         required: true
         default: "com.pvzge.gardendless"
         type: string
+      debug_capture:
+        description: "调试排错：注入JS错误捕获器（截获首帧前的错误/getUserMedia/弹窗，写屏幕调试面板+console）"
+        required: false
+        default: false
+        type: boolean
 
 env:
   XCODE_SCHEME: "App"
@@ -154,6 +159,10 @@ jobs:
           VERSION:             ${{ needs.detect-version.outputs.version }}
           COMMIT_SHORT:        ${{ needs.detect-version.outputs.commit_short }}
           PROJ_DIR:            ${{ runner.temp }}/cap_full
+          SOURCE_REPO:         ${{ needs.detect-version.outputs.source_repo }}
+          SOURCE_BRANCH:       ${{ needs.detect-version.outputs.source_branch }}
+          COMMIT_SHA:          ${{ needs.detect-version.outputs.commit_sha }}
+          DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
@@ -178,6 +187,10 @@ jobs:
           COMMIT_SHORT:        ${{ needs.detect-version.outputs.commit_short }}
           SUFFIX:              lite
           PROJ_DIR:            ${{ runner.temp }}/cap_lite
+          SOURCE_REPO:         ${{ needs.detect-version.outputs.source_repo }}
+          SOURCE_BRANCH:       ${{ needs.detect-version.outputs.source_branch }}
+          COMMIT_SHA:          ${{ needs.detect-version.outputs.commit_sha }}
+          DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
