@@ -53,9 +53,13 @@ if [ -f "$INDEX_F" ]; then
     cat > "$WEB_DIR_ABS/__pvzge_capture.js" <<'CAPJS'
 (function () {
   var E = window.__PVZGE_ERR = [];
+  var nativeError = function () {};
+  try { nativeError = console.error.bind(console); } catch (e) {}
   function push(t, m, s, d) {
     try { E.push({ t: t, ts: Date.now(), m: String(m == null ? '' : m), s: String(s == null ? '' : s), d: d }); } catch (e) {}
     try { localStorage.setItem('pvzge_errs', JSON.stringify(E.slice(-200))); } catch (e) {}
+    // 走原生 console.error，配合原生开启的 console→syslog 后可被 idevicesyslog 捕获
+    try { nativeError('[PVZGE] ' + t + ' | ' + (s == null ? '' : s) + ' | ' + (m == null ? '' : m)); } catch (e) {}
   }
   window.addEventListener('error', function (ev) {
     push('window.onerror', ev.message, (ev.filename || '') + ':' + ev.lineno + ':' + ev.colno);
@@ -186,6 +190,37 @@ PYEOF
 # ---------- 5) 添加 iOS 平台并同步 ----------
 npx cap add ios
 npx cap sync ios
+
+# --- 5.5) 调试构建：开启 WKWebView JS console → 系统日志（供 idevicesyslog 抓 [PVZGE]）---
+if [ "$CAPTURE" = "1" ]; then
+  APPD="$proj/ios/App/App/AppDelegate.swift"
+  if [ -f "$APPD" ]; then
+    python3 - "$APPD" <<'PY' && echo "✅ 已开启 WKWebView console→syslog（AppDelegate.swift）" \
+      || echo "::warning:: 注入 console→syslog 开关失败（不影响构建）"
+import sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8").read()
+if "LogsPageMessagesToSystemConsoleEnabled" in s:
+    sys.exit(0)  # 已注入过，幂等
+i = s.find("didFinishLaunchingWithOptions")
+j = s.find("return", i) if i >= 0 else -1
+if j < 0:
+    print("::warning:: 未能在 AppDelegate.swift 定位注入点")
+    sys.exit(0)
+ls = s.rfind("\n", 0, j) + 1
+le = s.find("\n", j)
+le = le if le >= 0 else len(s)
+line = s[ls:le]
+ind = line[: len(line) - len(line.lstrip())]
+inject = ind + 'UserDefaults.standard.set(true, forKey: "WebKitLogsPageMessagesToSystemConsoleEnabled")\n' \
+       + ind + 'UserDefaults.standard.set(true, forKey: "WebKit2.LogsPageMessagesToSystemConsoleEnabled")\n'
+s = s[:ls] + inject + s[ls:]
+open(p, "w", encoding="utf-8").write(s)
+PY
+  else
+    echo "::warning:: 未找到 AppDelegate.swift：$APPD"
+  fi
+fi
 
 # ---------- 6) 定位 iOS 工程根目录（含 Podfile / App.xcworkspace）----------
 #    注意用 -prune 排除 .xcodeproj 内部自带的 project.xcworkspace，
