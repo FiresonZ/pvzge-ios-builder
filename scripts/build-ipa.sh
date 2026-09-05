@@ -34,6 +34,118 @@ WEB_DIR_ABS="${WEB_DIR}"
 [ -d "$WEB_DIR_ABS" ] || WEB_DIR_ABS="$SRC/$WEB_DIR"
 [ -d "$WEB_DIR_ABS" ] || { echo "::error:: Web 目录不存在: $WEB_DIR_ABS"; exit 1; }
 
+# ============================================================
+# 方案B：注入 JS 错误捕获器 + 构建溯源（真机排错用）
+#   - 溯源 SOURCE_INFO 始终注入，便于确认 IPA 对应当前官方 commit
+#   - 错误捕获器仅在 DEBUG_CAPTURE=1 时注入：捕获 window 错误 /
+#     console / 未处理 rejection / 首帧前的 getUserMedia、alert、confirm、prompt，
+#     写到 localStorage + 屏幕调试面板（需连接 idevicesyslog 采集 console）
+# ============================================================
+SOURCE_REPO="${SOURCE_REPO:-Gzh0821/pvzge_web}"
+SOURCE_BRANCH="${SOURCE_BRANCH:-master}"
+COMMIT_SHA="${COMMIT_SHA:-}"
+CAPTURE="${DEBUG_CAPTURE:-0}"
+BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+INDEX_F="$WEB_DIR_ABS/index.html"
+if [ -f "$INDEX_F" ]; then
+  if [ "$CAPTURE" = "1" ]; then
+    cat > "$WEB_DIR_ABS/__pvzge_capture.js" <<'CAPJS'
+(function () {
+  var E = window.__PVZGE_ERR = [];
+  function push(t, m, s, d) {
+    try { E.push({ t: t, ts: Date.now(), m: String(m == null ? '' : m), s: String(s == null ? '' : s), d: d }); } catch (e) {}
+    try { localStorage.setItem('pvzge_errs', JSON.stringify(E.slice(-200))); } catch (e) {}
+  }
+  window.addEventListener('error', function (ev) {
+    push('window.onerror', ev.message, (ev.filename || '') + ':' + ev.lineno + ':' + ev.colno);
+  }, true);
+  window.addEventListener('unhandledrejection', function (ev) {
+    var r = ev.reason; var m = (r && r.message) ? (r.name + ': ' + r.message) : String(r);
+    push('unhandledrejection', m, 'promise');
+  });
+  ['log', 'info', 'warn', 'error', 'debug'].forEach(function (lv) {
+    var orig = console[lv];
+    console[lv] = function () {
+      push('console.' + lv, Array.prototype.join.call(arguments, ' '), '');
+      try { orig.apply(console, arguments); } catch (e) {}
+    };
+  });
+  // 拦截首帧前的相机 / 麦克风权限申请，记录调用点（getUserMedia）
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      var gum = navigator.mediaDevices.getUserMedia;
+      navigator.mediaDevices.getUserMedia = function () {
+        var c = arguments[0];
+        push('getUserMedia', 'CALLED constraints=' + (c ? JSON.stringify(c) : '(none)'),
+          (new Error().stack || '').split('\n').slice(1, 4).join(' | '));
+        return gum.apply(this, arguments);
+      };
+    }
+  } catch (e) {}
+  // 拦截首帧前的 alert / confirm / prompt，观察是否被调用
+  ['alert', 'confirm', 'prompt'].forEach(function (m) {
+    var o = window[m];
+    if (typeof o === 'function') {
+      window[m] = function () {
+        push('dialog.' + m, String(arguments[0] == null ? '' : arguments[0]), '');
+        return o.apply(window, arguments);
+      };
+    }
+  });
+  if (window.__PVZGE_SOURCE) push('source', JSON.stringify(window.__PVZGE_SOURCE), '');
+  // 屏幕调试面板：无调试工具时也能看到已捕获的错误
+  setTimeout(function () {
+    if (!E.length) return;
+    try {
+      var d = document.createElement('div');
+      d.id = 'pvzge-debug';
+      d.style.cssText = 'position:fixed;left:0;top:0;right:0;z-index:999999;background:rgba(0,0,0,.92);color:#4fc3ff;font:9px/1.35 monospace;white-space:pre-wrap;padding:6px 8px;max-height:55%;overflow:auto;pointer-events:auto;';
+      d.textContent = '[PVZGE_DEBUG] ' + E.map(function (e) {
+        return e.t + '@' + e.ts + ' ' + (e.s ? e.s + ' ' : '') + e.m;
+      }).join('\n---\n');
+      (document.body || document.documentElement).appendChild(d);
+    } catch (err) {}
+  }, 1500);
+})();
+CAPJS
+  fi
+
+  SOURCE_JSON=$(printf '{"repo":%s,"branch":%s,"commit":%s,"version":%s,"builtAt":%s}' \
+    "$(printf '%s' "${SOURCE_REPO}" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")" \
+    "$(printf '%s' "${SOURCE_BRANCH}" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")" \
+    "$(printf '%s' "${COMMIT_SHA}" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")" \
+    "$(printf '%s' "${VERSION}" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")" \
+    "$(printf '%s' "${BUILD_TIME}" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")")
+
+  python3 - "$INDEX_F" "$SOURCE_JSON" "$CAPTURE" <<'PY'
+import sys
+idx, src_json, capture = sys.argv[1], sys.argv[2], sys.argv[3]
+html = open(idx, encoding="utf-8", errors="replace").read()
+marker = "window.__PVZGE_SOURCE"
+inject = "<script>" + marker + "=" + src_json + ";</script>"
+if capture == "1":
+    inject += '\n  <script src="__pvzge_capture.js"></script>'
+if marker in html:
+    pass  # 已注入过，保持幂等，避免重复追加
+elif "</head>" in html:
+    html = html.replace("</head>", inject + "\n" + "</head>", 1)
+    open(idx, "w", encoding="utf-8").write(html)
+else:
+    open(idx, "w", encoding="utf-8").write(inject + "\n" + html)
+PY
+
+  printf '%s\n' "repo=$SOURCE_REPO" "branch=$SOURCE_BRANCH" "commit=$COMMIT_SHA" \
+    "version=$VERSION" "builtAt=$BUILD_TIME" > "$WEB_DIR_ABS/PVZGE_SOURCE.txt"
+  if [ "$CAPTURE" = "1" ]; then
+    echo "✅ 已注入错误捕获器 + 构建溯源到 $INDEX_F (DEBUG_CAPTURE=$CAPTURE)"
+  else
+    echo "ℹ️  已注入构建溯源到 $INDEX_F (DEBUG_CAPTURE=0，未启用捕获)"
+  fi
+else
+  echo "::warning:: 无法注入（index.html 不存在）: $INDEX_F"
+fi
+
 # 每个变体用独立工程目录，避免多次构建相互覆盖
 proj="${PROJ_DIR:-$RUNNER_TEMP/capacitor-project}"
 mkdir -p "$proj"
