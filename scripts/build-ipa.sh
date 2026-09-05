@@ -45,7 +45,9 @@ SOURCE_REPO="${SOURCE_REPO:-Gzh0821/pvzge_web}"
 SOURCE_BRANCH="${SOURCE_BRANCH:-master}"
 COMMIT_SHA="${COMMIT_SHA:-}"
 CAPTURE="${DEBUG_CAPTURE:-0}"
-SERVER_URL="${SERVER_URL:-}"   # 非空 = 远程加载（App 从该 https 地址拉网页，而非本地 capacitor://）
+SERVER_URL="${SERVER_URL:-}"     # 非空 = 远程加载（App 从该 https 地址拉网页，而非本地源）
+CUSTOM_SCHEME="${CUSTOM_SCHEME:-}" # 非空且未填 SERVER_URL = 本地自定义 scheme（如 gardendless-game），
+                                   # 覆盖 Capacitor 默认的 capacitor://，本地加载游戏资源
 BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 INDEX_F="$WEB_DIR_ABS/index.html"
@@ -188,8 +190,10 @@ fi
 npx cap init "$APP_NAME" "$APP_BUNDLE_ID" --web-dir="$WEB_DIR_ABS"
 
 # ---------- 4) 写入 appId/appName/appVersion/appVersionCode ----------
-#    若 SERVER_URL 非空，额外写入 "server": {"url": ...}，让 App 从远程 https 地址
-#    加载网页（用于验证灰屏是否为本地 scheme / 资源加载根因）；留空则维持本地 capacitor://
+#    server 段三选一（优先级：SERVER_URL > CUSTOM_SCHEME > 默认 capacitor://）：
+#      - SERVER_URL   非空 → "server": {"url": ...} 远程加载（验证用/远程瘦包）
+#      - CUSTOM_SCHEME 非空 → "server": {"appleScheme": ...} 本地自定义 scheme（如 gardendless-game）
+#      - 两者都空      → 移除 server 段，走 Capacitor 默认 capacitor:// 本地加载
 python3 - <<PYEOF
 import json, os
 p = "capacitor.config.json"
@@ -199,11 +203,15 @@ c["appName"] = c.get("appName") or os.environ["APP_NAME"]
 c["appVersion"] = os.environ["VERSION"]
 c["appVersionCode"] = 1
 server_url = os.environ.get("SERVER_URL", "").strip()
+custom_scheme = os.environ.get("CUSTOM_SCHEME", "").strip()
 if server_url:
     c["server"] = {"url": server_url}
     print("✅ server.url =", server_url)
+elif custom_scheme:
+    c["server"] = {"appleScheme": custom_scheme}
+    print("✅ server.appleScheme =", custom_scheme)
 else:
-    c.pop("server", None)  # 清掉旧配置，保证本地打包不受残留影响
+    c.pop("server", None)  # 清掉旧配置，走默认 capacitor://
 with open(p, "w") as f:
     f.write(json.dumps(c, indent=2) + "\n")
 PYEOF

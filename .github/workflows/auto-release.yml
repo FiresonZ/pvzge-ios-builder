@@ -71,6 +71,11 @@ on:
         required: false
         default: ""
         type: string
+      custom_scheme:
+        description: "本地自定义 scheme（可选，与 server_url 二选一）。填如 gardendless-game，则用自定义源替代 capacitor:// 在本地加载游戏资源，尝试修复灰屏"
+        required: false
+        default: ""
+        type: string
 
 env:
   XCODE_SCHEME: "App"
@@ -169,6 +174,7 @@ jobs:
           COMMIT_SHA:          ${{ needs.detect-version.outputs.commit_sha }}
           DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
           SERVER_URL:          ${{ inputs.server_url || '' }}
+          CUSTOM_SCHEME:       ${{ inputs.custom_scheme || '' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
@@ -200,6 +206,7 @@ jobs:
           COMMIT_SHA:          ${{ needs.detect-version.outputs.commit_sha }}
           DEBUG_CAPTURE:       ${{ inputs.debug_capture || '0' }}
           SERVER_URL:          ${{ inputs.server_url || '' }}
+          CUSTOM_SCHEME:       ${{ inputs.custom_scheme || '' }}
           XCODE_SCHEME:        ${{ env.XCODE_SCHEME }}
           CAPACITOR_CORE_VERSION: ${{ env.CAPACITOR_CORE_VERSION }}
         run: |
