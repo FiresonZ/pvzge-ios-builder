@@ -29,7 +29,7 @@ SUFFIX="${SUFFIX:-}"          # 空=正式版；lite = Lite 版
 VTOK="${SUFFIX:-full}"        # 区分正式/Lite 的各类中间/产物目录，避免并行构建互相覆盖
 CAP_VERSION="${CAPACITOR_CORE_VERSION:-6}"
 SCHEME="${XCODE_SCHEME:-App}"
-LOCAL_PORT="${LOCAL_SERVER_PORT:-8080}"  # 本地 http 服务器端口（server.url 与 Swift 端保持一致）
+LOCAL_PORT="${LOCAL_SERVER_PORT:-18888}"  # 本地 http 服务器端口（server.url 与 Swift 端保持一致），用不常见端口降低被占用概率
 GITHUB_WORKSPACE="${GITHUB_WORKSPACE:?}"
 RUNNER_TEMP="${RUNNER_TEMP:?}"
 
@@ -73,7 +73,7 @@ c["appId"] = c.get("appId") or os.environ["APP_BUNDLE_ID"]
 c["appName"] = c.get("appName") or os.environ["APP_NAME"]
 c["appVersion"] = os.environ["VERSION"]
 c["appVersionCode"] = 1
-port = os.environ.get("LOCAL_PORT", "8080").strip()
+port = os.environ.get("LOCAL_SERVER_PORT", "18888").strip()
 c["server"] = {"url": "http://127.0.0.1:" + port}
 print("local-http: server.url =", c["server"]["url"])
 with open(p, "w") as f:
