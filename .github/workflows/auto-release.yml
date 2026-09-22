@@ -143,6 +143,33 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Inject Touch Patch
+        shell: bash
+        run: |
+          set -e
+          PATCH_FILE="${{ github.workspace }}/patches/touchPatch.js"
+          TARGET_DIR="${{ github.workspace }}/_game_src/${{ needs.detect-version.outputs.web_dir }}"
+          INDEX_HTML="$TARGET_DIR/index.html"
+
+          if [ ! -f "$PATCH_FILE" ]; then
+            echo "::error::未找到 patches/touchPatch.js"
+            exit 1
+          fi
+
+          if [ ! -f "$INDEX_HTML" ]; then
+            echo "::error::未找到 index.html: $INDEX_HTML"
+            exit 1
+          fi
+
+          cp "$PATCH_FILE" "$TARGET_DIR/touchPatch.js"
+
+          if grep -q 'touchPatch.js' "$INDEX_HTML"; then
+            echo "touchPatch.js 已存在于 index.html，跳过注入"
+          else
+            perl -0777 -pi -e 's#</body>#<script src="touchPatch.js"></script>\n</body>#i' "$INDEX_HTML"
+            echo "已注入 touchPatch.js 到 $INDEX_HTML"
+          fi
+
       # ---------------- 正式版 ----------------
       - name: Build FULL IPA
         id: build-full
